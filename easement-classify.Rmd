@@ -16,11 +16,226 @@ html_document:
 # Just turing off the conflicts because I'm tired of seeing them.
 library(tidyverse,warn.conflicts = F)
 library(tidymodels,warn.conflicts = F)
-library(lubridate,warn.conflicts = F)
+library(here)
+library(scales)    # for pretty axes and in-line numbers
+library(themis)    # for upsample
+library(baguette)  # for some goodness with trees
+
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
 ## Introduction
 
-TK
+```{r cache=T}
+d <- read_csv(here("20200406_full_append.csv"))
+logit.vars <- read_csv(here("logit variables.csv"))
+
+d <- d %>% 
+  janitor::clean_names() %>% 
+  mutate(ce_fact = factor(ce_yn,levels = c(0,1),labels=c("No","Yes")))
+
+logit.vars <- logit.vars %>%
+  mutate(clean_varname = janitor::make_clean_names(varname))
+
+# Let's get rid of columns we don't need
+d <- d %>% 
+  select(-(owner_name:owner_zip_co),
+         -(voterbase_id:vb_tsmart_address_dpv_footnote),
+         -(vb_vf_precinct_id:vb_reg_dma_name),
+         -vb_vf_reg_address_1,
+         -enh_addr_code,-enh_tsmart_enhanced_hh_code,
+         -enh_tsmart_enhanced_reg_code,
+         -vb_vf_party,
+         -vb_vf_race,
+         -vb_vf_absentee_status,
+         -starts_with("vhsyn_vf"))
+
+
+```
+
+This project works with a data set that is both long and wide to predict which
+parcels of land are most likely to have conservation easements. We'll model
+the known easements, under the assumption that if we can predict these then
+we'll be able to find other parcels that are likely to be persuadable to
+create their own easements.
+
+This data set was assembled by Hannah Leonard, as part of her MS in Forestry
+thesis project. Since she's visiting class, I won't spend a ton of time
+writing about the problem. Her thesis is posted to Moodle if you'd like 
+additional background information. 
+
+This data set is a bit unwieldy with `r nrow(d)` rows and `r ncol(d)` columns. 
+That's why the code chunk above that reads it in uses the `cache=T` flag. This means
+that this code won't re-run every time you knit, unless you make changes
+in the code chunk. Read more
+[here](https://bookdown.org/yihui/rmarkdown-cookbook/cache.html). 
+
+The outcome variable is `ce_yn` for "conservation easement yes/no" where 1
+means that the parcel has a conservation easement on it. Only about 0.2%
+of parcels have easements and in the 180K parcels there are only 468 
+easements!  
+
+I've started this document for you. Your job will be to fill in or expand 
+the various code chunks. Also write some commentary, just like you were doing
+this whole analysis. Note that I'll probably post this before I've written 
+my solution, so please don't take my guidance _completely_ at face value; you 
+might come up with things that work better!
+
+Hannah provided me with some of the variables she used in a logistic regression
+model, so I'll fit that model along the way to show you some of the backbone
+of the process. 
+
+## Data Splitting
+
+Let's split the data into training and test sets, stratifying on `ce_yn`. This
+is important here, so that we can ensure that both the training and test set
+have the same number of easements. 
+
+```{r}
+set.seed(20210410) # use set.seed for reproducible research!
+
+splits <- initial_split(d,
+                        strata = ce_fact)
+
+# If you're going to do model tuning, this is also a good 
+# time to do the vfold_cv on the training data.
+
+# There are some steps below that are quick for me to write if 
+# I have a separate data set that is just the logistic regression
+# vars. Normally you wouldn't do this and would just make a different
+# model object with the terms specified. But I want to do `ce_yn ~ .` for 
+# that model. 
+
+d.logistic.train <- splits %>%
+  training() %>% 
+  select(ce_yn, ce_fact, logit.vars$clean_varname)
+
+d.logistic.test <- splits %>%
+  testing() %>% 
+  select(ce_yn, ce_fact, logit.vars$clean_varname)
+
+```
+
+
+## Data Preparation
+
+We'll set up a recipe in this section. Since the presence of easements
+is real needle-in-the-haystack stuff, so we're going to use sampling
+to balance out our classes for the model fitting. This can help
+the model learn the features that predict easements. If we don't do this, then
+the model will just pat itself on the back for being right 
+`r percent(mean(d$ce_fact=="No"))` of the time. We'll use `step_upsample`
+to bring the number of easements to parity with the non-easements. 
+
+This is too many columns to work individually, so I encourage you to use models 
+that can handle many variables and to use some of our steps that help 
+us work with large data sets (e.g., `step_zv` or `step_corr`). 
+[This article](https://recipes.tidymodels.org/articles/Ordering.html) may help you 
+choose the order of your recipe steps. I'm going to do the bare minimum for 
+the logistic regression recipe. Performance would be better with additional steps!
+
+Prepping can be slow on large data sets, so I'm setting `cache=T` for this 
+code chunk too. 
+
+```{r cache=T} 
+# Here's where your recipe can go. We have both ce_fact and ce_yn, so
+# you should drop the one you don't need. I'm going to assume you'll 
+# use the factor
+my.recipe <- recipe(ce_fact ~ ., data=training(splits)) %>% 
+  step_rm(ce_yn,fid,key) %>% # remove the other response and ID vars
+#  step_downsample(ce_fact,under_ratio=50) %>%
+  step_upsample(ce_fact) %>% 
+  prep()
+                    
+  
+logistic.recipe <- recipe(ce_fact ~ ., data=d.logistic.train) %>% 
+  step_rm(ce_yn) %>% # remove the other response and ID vars
+  step_meanimpute(all_numeric()) %>% 
+  step_dummy(all_nominal(),-all_outcomes()) %>% 
+  step_normalize(all_numeric()) %>% 
+  step_upsample(ce_fact) %>% 
+  prep()
+                      
+tidy(my.recipe)
+
+```
+
+## Model Definition
+
+Notionally, this is one of the fun parts. Please create at least two different
+models and briefly tell me which one did better in the evaluation section.
+
+```{r}
+
+# Your models here
+
+
+
+# Logistic model here.
+logistic.model <- logistic_reg() %>% 
+  set_engine("glm")
+
+
+
+```
+
+
+## Workflow Setup
+
+You totally don't have to use the workflow stuff, but I will for logistic 
+regression. It's really handy if you're turning your model. 
+
+```{r}
+
+logistic.wf <- workflow() %>% 
+  add_recipe(logistic.recipe) %>% 
+  add_model(logistic.model)
+
+
+```
+
+
+
+## Modeling
+
+Fit your models here. 
+
+```{r}
+# A place for you to fit. 
+
+
+# fitting the logistic regression model. 
+logistic.fit <- fit(logistic.wf, data=d.logistic.train)
+
+
+```
+
+
+
+## Model Evaluation
+
+Evaluate your model here using, at least, a confusion matrix and the kappa statistic.
+Write a bit about what the kappa statistic is telling us here. Feel free to make
+a plot. How much can you beat this neutered logistic regression by? 
+
+```{r}
+# Your model eval here
+
+
+d.logistic.test <- d.logistic.test %>% 
+  mutate(ce_est = predict(logistic.fit,new_data=d.logistic.test) %>% pull(.pred_class))
+
+conf_mat(d.logistic.test,truth=ce_fact,estimate=ce_est)
+metrics(d.logistic.test,truth=ce_fact,estimate=ce_est)
+
+```
+
+
+
+
+
+
+
+
+
