@@ -226,8 +226,23 @@ a plot. How much can you beat this neutered logistic regression by?
 d.logistic.test <- d.logistic.test %>% 
   mutate(ce_est = predict(logistic.fit,new_data=d.logistic.test) %>% pull(.pred_class))
 
+# We can also play around with cutoffs.
+
+d.logistic.test <- d.logistic.test %>% 
+  mutate(ce_est_prob = predict(logistic.fit,new_data=d.logistic.test,type="prob") %>% pull(.pred_Yes))
+
+cutoff <- 0.85
+
+d.logistic.test <- d.logistic.test %>% 
+  mutate(ce_est_2 = factor(if_else(ce_est_prob > cutoff, "Yes","No")))
+
 conf_mat(d.logistic.test,truth=ce_fact,estimate=ce_est)
 metrics(d.logistic.test,truth=ce_fact,estimate=ce_est)
+
+conf_mat(d.logistic.test,truth=ce_fact,estimate=ce_est_2)
+metrics(d.logistic.test,truth=ce_fact,estimate=ce_est_2)
+
+
 
 ```
 
