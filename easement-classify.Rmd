@@ -49,6 +49,7 @@ d <- d %>%
          -vb_vf_party,
          -vb_vf_race,
          -vb_vf_absentee_status,
+         -sum_easeme, # oops, left this in on draft 1
          -starts_with("vhsyn_vf"))
 
 
